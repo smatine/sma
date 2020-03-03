@@ -1,0 +1,120 @@
+package com.amazonaws.lambda.demo;
+
+import java.io.IOException;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+
+import com.amazonaws.AmazonClientException;
+import com.amazonaws.auth.AWSCredentials;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.regions.Regions;
+import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.sqs.AmazonSQS;
+import com.amazonaws.services.sqs.AmazonSQSClientBuilder;
+import com.amazonaws.services.sqs.model.GetQueueAttributesRequest;
+import com.amazonaws.services.sqs.model.GetQueueAttributesResult;
+import com.amazonaws.services.sqs.model.SendMessageRequest;
+
+public class SccaleLambdaFunctionHandler implements RequestHandler<Object, String> {
+
+    @Override
+    public String handleRequest(Object input, Context context) {
+        context.getLogger().log("Input: ");
+        sendMessage();
+        // TODO: implement your handler
+        return "Hello from scale Lambda!";
+    }
+    
+    public void sendMessage() {
+    	
+    	String APPROXIMATE_NUMBER_OF_MESSAGES_ATT = "ApproximateNumberOfMessages";
+        //String NAMESPACE = "QueueDepthNamespace";
+        
+    	String myQueueUrl = "https://sqs.eu-west-1.amazonaws.com/267644187127/queueTemp";
+    	String myQueueActiveUrl = "";
+    	double numberOfMessage = 0;
+    	String db_username = "";
+        String db_password = "";
+        String db_database = "";
+        String db_hostname="mydb..eu-west-1.rds.amazonaws.com";
+         
+        String jdbc_url = "jdbc:postgresql://" + db_hostname + ":5432/" + db_database;
+        
+    	AWSCredentials credentials = null;
+        try {
+            //credentials = new ProfileCredentialsProvider("default").getCredentials();
+        	credentials =  new BasicAWSCredentials("AKIAT4UGWGH3YVOS7EUC", "Jy8PUyDKHE60gg29mQcgkE1y5fwKDVlh9/uCcVuh");
+        } catch (Exception e) {
+            throw new AmazonClientException(
+                    "Cannot load the credentials from the credential profiles file. " +
+                    "Please make sure that your credentials file is at the correct " +
+                    "location (C:\\Users\\Administrator\\.aws\\credentials), and is in valid format.",
+                    e);
+        }
+
+        AmazonSQS sqs = AmazonSQSClientBuilder.standard()
+                .withCredentials(new AWSStaticCredentialsProvider(credentials))
+                .withRegion(Regions.EU_WEST_1)
+                .build();
+        try {
+			Class.forName("org.postgresql.Driver");
+		} catch (ClassNotFoundException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+        try {
+        	String line = "test scaling";
+        	
+        	
+        	PreparedStatement preparedStatement;
+        	Connection conn = DriverManager.getConnection(jdbc_url, db_username, db_password);
+        	Statement statement = conn.createStatement();
+            String sql = "";
+        	System.out.println(" get number of message " + "\n");
+        	
+        	sql = "SELECT  name, url FROM queue_list where status='O'";
+        	ResultSet resultSet = statement.executeQuery(sql);
+            while (resultSet.next()) {
+                String nameOfQueue = resultSet.getString("name");
+                myQueueActiveUrl = resultSet.getString("url");
+                System.out.println("Name=: " + nameOfQueue);
+                
+                
+                
+                GetQueueAttributesRequest getQueueAttributesRequest = new GetQueueAttributesRequest(myQueueActiveUrl)
+                  .withAttributeNames("All");
+                GetQueueAttributesResult getQueueAttributesResult = sqs.getQueueAttributes(getQueueAttributesRequest);
+                String toto = getQueueAttributesResult.getAttributes().get("ApproximateNumberOfMessages");
+                numberOfMessage = Double.valueOf(toto).doubleValue() + numberOfMessage;
+                
+                /*System.out.println(String.format("The number of messages on the queue: %s", 
+                getQueueAttributesResult.getAttributes().get("ApproximateNumberOfMessages")));
+                 System.out.println(String.format("The number of messages in flight: %s", 
+                getQueueAttributesResult.getAttributes().get("ApproximateNumberOfMessagesNotVisible")));*/
+
+            }
+            
+            sqs.sendMessage(new SendMessageRequest(myQueueUrl,new Double(numberOfMessage).toString()));
+            
+        } catch (AmazonClientException ace) {
+            System.out.println("Caught an AmazonClientException, which means the client encountered "
+                    + "a serious internal problem while trying to communicate with S3, "
+                    + "such as not being able to access the network.");
+            System.out.println("Error Message: " + ace.getMessage());
+        }  catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (Exception ee) {
+			ee.printStackTrace();
+		}
+
+    }
+    
+
+}
