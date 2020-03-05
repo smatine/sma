@@ -1,0 +1,129 @@
+package com.amazonaws.lambda.demo;
+
+import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.events.SQSEvent;
+import com.amazonaws.services.lambda.runtime.events.SQSEvent.MessageAttribute;
+import com.amazonaws.services.lambda.runtime.events.SQSEvent.SQSMessage;
+import com.amazonaws.services.rds.AmazonRDS;
+import com.amazonaws.services.rds.AmazonRDSClientBuilder;
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.model.GetObjectRequest;
+import com.amazonaws.services.s3.model.S3Object;
+import com.amazonaws.services.sqs.AmazonSQS;
+import com.amazonaws.services.sqs.AmazonSQSClientBuilder;
+import com.amazonaws.services.sqs.model.MessageAttributeValue;
+import com.amazonaws.services.sqs.model.SendMessageRequest;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.zip.ZipInputStream;
+
+import org.json.JSONObject;
+
+import com.amazonaws.AmazonClientException;
+import com.amazonaws.AmazonServiceException;
+import com.amazonaws.auth.AWSCredentials;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.lambda.demo.RequestClass;
+import com.amazonaws.regions.Regions;
+
+public class LambdaFunctionHandler implements RequestHandler<SQSEvent, String> {
+
+	 @Override
+	    public String handleRequest(SQSEvent event, Context context) {
+	    	
+	    	for(SQSMessage message : event.getRecords()){
+	    		String myQueueOut = "";
+	            //System.out.println(new String(message.getBody()));
+	            //JSONObject jo = new JSONObject(new String(msg.getBody()));
+	    		System.out.println("  Message");
+	            System.out.println("    MessageId:     " + message.getMessageId());
+	            System.out.println("    ReceiptHandle: " + message.getReceiptHandle());
+	            //System.out.println("    MD5OfBody:     " + message.getMD5OfBody());
+	            System.out.println("    Body:          " + message.getBody());
+	            //myQueueOutt = message.getAttributes().get("myQueueOut");
+	            for (Entry<String, MessageAttribute> entry : message.getMessageAttributes().entrySet()) {
+	                System.out.println("  Attribute");
+	                //System.out.println("    Name:  " + entry.getKey());
+	                //System.out.println("    Value: " + entry.getValue());
+	                String key = entry.getKey();
+	                String value = entry.getValue().getStringValue();
+	                if(key != null && key.equals("myQueueOut"))
+	                {
+	                	myQueueOut = value;
+	               	 
+	                }
+	            }
+	            handleMessage(message.getBody(), myQueueOut);
+	        }
+	        // TODO: implement your handler
+	        return "ok from lambda worker!";
+	    }
+	 
+	 private void handleMessage(String message, String myQueueOut) {
+		 
+ 		AWSCredentials credentials = null;
+         try {
+             
+         	credentials =  new BasicAWSCredentials();
+         } catch (Exception e) {
+             throw new AmazonClientException(
+                     "Cannot load the credentials from the credential profiles file. " +
+                     "Please make sure that your credentials file is at the correct " +
+                     "location (C:\\Users\\Administrator\\.aws\\credentials), and is in valid format.",
+                     e);
+         }
+
+         AmazonSQS sqs = AmazonSQSClientBuilder.standard()
+                 .withCredentials(new AWSStaticCredentialsProvider(credentials))
+                 .withRegion(Regions.EU_WEST_1)
+                 .build();
+
+         try {
+        	// Send a message
+             System.out.println("Sending a message to smademo.\n");
+             final Map<String, MessageAttributeValue> messageAttributes = new HashMap<>();
+             messageAttributes.put("Author", new MessageAttributeValue()
+                     .withDataType("String")
+                     .withStringValue("sma"));
+             messageAttributes.put("myQueueOut", new MessageAttributeValue()
+                     .withDataType("String")
+                     .withStringValue(myQueueOut));
+             final SendMessageRequest sendMessageRequest = new SendMessageRequest();
+             
+             sendMessageRequest.withMessageBody(message);
+             sendMessageRequest.withQueueUrl(myQueueOut);
+             sendMessageRequest.withMessageAttributes(messageAttributes);
+             sqs.sendMessage(sendMessageRequest);
+
+         }catch (AmazonServiceException ase) {
+             System.out.println("Caught an AmazonServiceException, which means your request made it "
+                     + "to Amazon S3, but was rejected with an error response for some reason.");
+             System.out.println("Error Message:    " + ase.getMessage());
+             System.out.println("HTTP Status Code: " + ase.getStatusCode());
+             System.out.println("AWS Error Code:   " + ase.getErrorCode());
+             System.out.println("Error Type:       " + ase.getErrorType());
+             System.out.println("Request ID:       " + ase.getRequestId());
+         } catch (AmazonClientException ace) {
+             System.out.println("Caught an AmazonClientException, which means the client encountered "
+                     + "a serious internal problem while trying to communicate with S3, "
+                     + "such as not being able to access the network.");
+             System.out.println("Error Message: " + ace.getMessage());
+         }
+            
+	 }
+
+}
